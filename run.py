@@ -7,6 +7,8 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import time
+import sys
+import os
 
 #CONSTANTS
 path = "./data"
@@ -90,7 +92,7 @@ def train(model, criterion, optimizer, train_loader, val_loader, epochs, print_e
                 if np.mean(val_losses) < max_loss:
                     print("New Best! Saving Model...")
                     max_loss = np.mean(val_losses)
-                    torch.save(model.state_dict(), 'imdb_best.pth')
+                    torch.save(model.state_dict(), 'model.bin')
 
                 print("Epoch: {}/{}...".format(e+1, epochs),
                     "Iters: {}...".format(counter),
@@ -102,7 +104,12 @@ def test(model, criterion, test_loader):
     test_losses = [] # track loss
     num_correct = 0
 
-    model.load_state_dict(torch.load('imdb_best.pth'))
+    if(os.path.exists("./model.bin")):
+        print("Loading pre-trained model")
+        model.load_state_dict(torch.load('model.bin'))
+    else:
+        print("No model found. Train the model first!")
+        exit()
 
     # init hidden state
     h = model.init_hidden(BATCH_SIZE, DEVICE)
@@ -141,6 +148,16 @@ def test(model, criterion, test_loader):
     print("Test accuracy: {:.3f}".format(test_acc))
 
 if __name__ == "__main__":
+    """
+    Arguments : train - Trains the model on the training test
+                test  - Evaluate the model on the test set
+    """
+    mode = sys.argv[1]
+
+    if mode != "train" and mode != "test":
+        print("Invalid Mode!")
+        exit()
+
     print("Reading data from Corpus...")
     train_reviews, test_reviews, train_labels, test_labels = read_data(path)
 
@@ -162,22 +179,31 @@ if __name__ == "__main__":
     y_train = Variable(torch.LongTensor(train_labels).to(DEVICE))
     y_test = Variable(torch.LongTensor(test_labels).to(DEVICE))
 
+    print("Instantiating the Model...")
     model = Classifier(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, NUM_OUTPUTS, NUM_LAYERS)
     print(model)
     model =  model.to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARN_RATE)
     criterion = nn.BCELoss()
     criterion = criterion.to(DEVICE)
 
     train_data = TensorDataset(x_train, y_train)
-    val_data = TensorDataset(x_test, y_test)
     test_data = TensorDataset(x_test, y_test)
 
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True)
 
-    print("Starting Training")
-    train(model, criterion, optimizer, train_loader, val_loader, epochs, print_every, clip)
-    print("Starting Evaluation")
-    test(model, criterion, test_loader)
+    if mode == "train":
+        x_val = Variable(torch.LongTensor(int_test[:len(int_test)//2]).to(DEVICE))   #use half the test set for validation
+        y_val = Variable(torch.LongTensor(test_labels[:len(test_labels)//2]).to(DEVICE))
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=LEARN_RATE)
+
+        val_data = TensorDataset(x_val, y_val)
+        val_loader = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True)
+
+        print("Starting Training...")
+        train(model, criterion, optimizer, train_loader, val_loader, epochs, print_every, clip)
+
+    else:
+        print("Starting Evaluation...")
+        test(model, criterion, test_loader)
